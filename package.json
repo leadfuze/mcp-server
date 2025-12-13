@@ -1,0 +1,43 @@
+{
+  "name": "leadfuze-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for LeadFuze Enrichment API - Enrich contacts and companies with verified business data",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js",
+    "inspector": "npx @modelcontextprotocol/inspector node dist/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "leadfuze",
+    "enrichment",
+    "contact-enrichment",
+    "email-lookup",
+    "linkedin-lookup",
+    "b2b-data"
+  ],
+  "author": "LeadFuze",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/justinmcgill/leadfuze-mcp.git"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "cors": "^2.8.5",
+    "express": "^5.2.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
