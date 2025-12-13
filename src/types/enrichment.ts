@@ -110,3 +110,49 @@ export interface LinkedInEnrichmentParams {
   include_company?: boolean;
   include_social?: boolean;
 }
+
+// Email Validation Types
+export interface ValidationResult {
+  valid_format: boolean;
+  deliverable: boolean;
+  full_inbox: boolean;
+  host_exists: boolean;
+  catch_all: boolean;
+}
+
+export interface ValidationData {
+  email: string;
+  username: string;
+  domain: string;
+  md5_hash: string;
+  result: ValidationResult;
+  status: string;
+  risk_level: string;
+}
+
+export interface ValidationMeta {
+  input: string;
+  source: string;
+  timestamp: string;
+  response_time_ms: number;
+  validation_type: string;
+  mail_servers_count: number;
+}
+
+export interface ValidationCredits {
+  used: number;
+  remaining: number;
+}
+
+export interface ValidationResponse {
+  success: boolean;
+  cached: boolean;
+  data: ValidationData;
+  meta: ValidationMeta;
+  credits: ValidationCredits;
+}
+
+export interface EmailValidationParams {
+  email: string;
+  cache_ttl?: number;
+}

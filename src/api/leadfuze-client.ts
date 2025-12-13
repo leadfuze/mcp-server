@@ -6,6 +6,8 @@ import type {
   EnrichmentResponse,
   EmailEnrichmentParams,
   LinkedInEnrichmentParams,
+  ValidationResponse,
+  EmailValidationParams,
 } from "../types/enrichment.js";
 
 const API_BASE_URL = "https://console.leadfuze.com/api/v1";
@@ -80,6 +82,16 @@ export class LeadFuzeClient {
       limit: 100,
       page: 1,
       cache_ttl: 600,
+    });
+  }
+
+  /**
+   * Validate an email address
+   */
+  async validateEmail(params: EmailValidationParams): Promise<ValidationResponse> {
+    return this.request<ValidationResponse>("/verification/email", {
+      email: params.email,
+      cache_ttl: params.cache_ttl ?? 600,
     });
   }
 }
@@ -204,6 +216,48 @@ export function formatEnrichmentResponse(response: EnrichmentResponse): string {
       lines.push(`- LinkedIn: ${company.linkedin_url}`);
     }
   }
+
+  // Add raw data for completeness
+  lines.push("");
+  lines.push("--- Raw Data ---");
+  lines.push(JSON.stringify(response.data, null, 2));
+
+  return lines.join("\n");
+}
+
+/**
+ * Format validation response into human-readable text
+ */
+export function formatValidationResponse(response: ValidationResponse): string {
+  if (!response.success) {
+    return "Error: The validation request was not successful.";
+  }
+
+  const data = response.data;
+  const result = data.result;
+  const lines: string[] = [];
+
+  // Status summary with emoji
+  const statusEmoji = data.status === "valid" ? "✅" : data.status === "invalid" ? "❌" : "⚠️";
+  lines.push(`${statusEmoji} Email: ${data.email}`);
+  lines.push(`Status: ${data.status.toUpperCase()}`);
+  lines.push(`Risk Level: ${data.risk_level}`);
+
+  lines.push("");
+  lines.push("Validation Details:");
+  lines.push(`- Valid Format: ${result.valid_format ? "Yes" : "No"}`);
+  lines.push(`- Deliverable: ${result.deliverable ? "Yes" : "No"}`);
+  lines.push(`- Host Exists: ${result.host_exists ? "Yes" : "No"}`);
+  lines.push(`- Catch-All: ${result.catch_all ? "Yes" : "No"}`);
+  lines.push(`- Full Inbox: ${result.full_inbox ? "Yes" : "No"}`);
+
+  lines.push("");
+  lines.push("Email Info:");
+  lines.push(`- Username: ${data.username}`);
+  lines.push(`- Domain: ${data.domain}`);
+
+  lines.push("");
+  lines.push(`Credits Used: ${response.credits.used} | Remaining: ${response.credits.remaining}`);
 
   // Add raw data for completeness
   lines.push("");

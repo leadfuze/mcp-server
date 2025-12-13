@@ -8,20 +8,22 @@
  *
  * Supports two modes:
  * - stdio: For local testing with MCP Inspector, Claude Desktop, Claude Code
+ *          (uses LEADFUZE_API_KEY environment variable)
  * - http: For remote deployment (Claude.ai, hosted environments)
+ *          (users pass their API key via Authorization header)
  *
  * Usage:
- *   Local:  node dist/index.js
+ *   Local:  LEADFUZE_API_KEY=lfz_xxx node dist/index.js
  *   Remote: node dist/index.js --http --port 3000
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
+import express from "express";
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { LeadFuzeClient, formatEnrichmentResponse } from "./api/leadfuze-client.js";
+import { LeadFuzeClient, formatEnrichmentResponse, formatValidationResponse } from "./api/leadfuze-client.js";
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -29,154 +31,214 @@ const isHttpMode = args.includes("--http");
 const portIndex = args.indexOf("--port");
 const port = portIndex !== -1 ? parseInt(args[portIndex + 1], 10) : 3000;
 
-// Get API key from environment
-const API_KEY = process.env.LEADFUZE_API_KEY;
+// Store clients per session (for HTTP mode with per-user API keys)
+const sessionClients = new Map<string, LeadFuzeClient>();
 
-if (!API_KEY) {
-  console.error("Error: LEADFUZE_API_KEY environment variable is required");
-  console.error("Get your API key at: https://console.leadfuze.com/register");
-  process.exit(1);
-}
+/**
+ * Create an MCP server with tools configured to use a specific client
+ */
+function createMcpServer(getClient: () => LeadFuzeClient): McpServer {
+  const server = new McpServer({
+    name: "leadfuze-enrichment",
+    version: "1.0.0",
+  });
 
-// Initialize LeadFuze client
-const client = new LeadFuzeClient(API_KEY);
-
-// Create MCP server
-const server = new McpServer({
-  name: "leadfuze-enrichment",
-  version: "1.0.0",
-});
-
-// Email Enrichment Tool
-server.registerTool(
-  "enrich_by_email",
-  {
-    title: "Email Enrichment",
-    description:
-      "Look up detailed person and company information using an email address. Returns verified business data including job title, company details, phone numbers, and social profiles.",
-    inputSchema: {
-      email: z.string().email().describe("The email address to enrich"),
-      include_company: z
-        .boolean()
-        .default(true)
-        .describe("Include company data in response"),
-      include_social: z
-        .boolean()
-        .default(true)
-        .describe("Include social profile data in response"),
-    },
-    annotations: {
+  // Email Enrichment Tool
+  server.registerTool(
+    "enrich_by_email",
+    {
       title: "Email Enrichment",
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
+      description:
+        "Look up detailed person and company information using an email address. Returns verified business data including job title, company details, phone numbers, and social profiles.",
+      inputSchema: {
+        email: z.string().email().describe("The email address to enrich"),
+        include_company: z
+          .boolean()
+          .default(true)
+          .describe("Include company data in response"),
+        include_social: z
+          .boolean()
+          .default(true)
+          .describe("Include social profile data in response"),
+      },
+      annotations: {
+        title: "Email Enrichment",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
-  },
-  async ({ email, include_company, include_social }) => {
-    try {
-      const response = await client.enrichByEmail({
-        email,
-        include_company,
-        include_social,
-      });
+    async ({ email, include_company, include_social }) => {
+      try {
+        const client = getClient();
+        const response = await client.enrichByEmail({
+          email,
+          include_company,
+          include_social,
+        });
 
-      const formattedResponse = formatEnrichmentResponse(response);
+        const formattedResponse = formatEnrichmentResponse(response);
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: formattedResponse,
-          },
-        ],
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "An unknown error occurred";
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: formattedResponse,
+            },
+          ],
+        };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "An unknown error occurred";
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Error enriching email: ${errorMessage}`,
-          },
-        ],
-        isError: true,
-      };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error enriching email: ${errorMessage}`,
+            },
+          ],
+          isError: true,
+        };
+      }
     }
-  }
-);
+  );
 
-// LinkedIn Enrichment Tool
-server.registerTool(
-  "enrich_by_linkedin",
-  {
-    title: "LinkedIn Enrichment",
-    description:
-      "Look up detailed person and company information using a LinkedIn profile URL. Returns verified business data including email, job title, company details, and phone numbers.",
-    inputSchema: {
-      linkedin: z
-        .string()
-        .describe(
-          "The LinkedIn profile URL (e.g., linkedin.com/in/johndoe or https://www.linkedin.com/in/johndoe)"
-        ),
-      include_company: z
-        .boolean()
-        .default(true)
-        .describe("Include company data in response"),
-      include_social: z
-        .boolean()
-        .default(true)
-        .describe("Include social profile data in response"),
-    },
-    annotations: {
+  // LinkedIn Enrichment Tool
+  server.registerTool(
+    "enrich_by_linkedin",
+    {
       title: "LinkedIn Enrichment",
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true,
+      description:
+        "Look up detailed person and company information using a LinkedIn profile URL. Returns verified business data including email, job title, company details, and phone numbers.",
+      inputSchema: {
+        linkedin: z
+          .string()
+          .describe(
+            "The LinkedIn profile URL (e.g., linkedin.com/in/johndoe or https://www.linkedin.com/in/johndoe)"
+          ),
+        include_company: z
+          .boolean()
+          .default(true)
+          .describe("Include company data in response"),
+        include_social: z
+          .boolean()
+          .default(true)
+          .describe("Include social profile data in response"),
+      },
+      annotations: {
+        title: "LinkedIn Enrichment",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
     },
-  },
-  async ({ linkedin, include_company, include_social }) => {
-    try {
-      const response = await client.enrichByLinkedIn({
-        linkedin,
-        include_company,
-        include_social,
-      });
+    async ({ linkedin, include_company, include_social }) => {
+      try {
+        const client = getClient();
+        const response = await client.enrichByLinkedIn({
+          linkedin,
+          include_company,
+          include_social,
+        });
 
-      const formattedResponse = formatEnrichmentResponse(response);
+        const formattedResponse = formatEnrichmentResponse(response);
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: formattedResponse,
-          },
-        ],
-      };
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "An unknown error occurred";
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: formattedResponse,
+            },
+          ],
+        };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "An unknown error occurred";
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Error enriching LinkedIn profile: ${errorMessage}`,
-          },
-        ],
-        isError: true,
-      };
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error enriching LinkedIn profile: ${errorMessage}`,
+            },
+          ],
+          isError: true,
+        };
+      }
     }
-  }
-);
+  );
+
+  // Email Validation Tool
+  server.registerTool(
+    "validate_email",
+    {
+      title: "Email Validation",
+      description:
+        "Validate an email address to check if it's deliverable, has valid format, and assess its risk level. Returns detailed validation results including deliverability, catch-all status, and mail server information.",
+      inputSchema: {
+        email: z.string().email().describe("The email address to validate"),
+      },
+      annotations: {
+        title: "Email Validation",
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ email }) => {
+      try {
+        const client = getClient();
+        const response = await client.validateEmail({ email });
+
+        const formattedResponse = formatValidationResponse(response);
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: formattedResponse,
+            },
+          ],
+        };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "An unknown error occurred";
+
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error validating email: ${errorMessage}`,
+            },
+          ],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  return server;
+}
 
 /**
  * Start the server in stdio mode (for local testing)
+ * Uses LEADFUZE_API_KEY environment variable
  */
 async function startStdioServer() {
+  const API_KEY = process.env.LEADFUZE_API_KEY;
+
+  if (!API_KEY) {
+    console.error("Error: LEADFUZE_API_KEY environment variable is required");
+    console.error("Get your API key at: https://console.leadfuze.com/register");
+    process.exit(1);
+  }
+
+  const client = new LeadFuzeClient(API_KEY);
+  const server = createMcpServer(() => client);
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("LeadFuze MCP Server running on stdio");
@@ -184,39 +246,68 @@ async function startStdioServer() {
 
 /**
  * Start the server in HTTP mode (for remote deployment)
+ * Users pass their API key via Authorization header
  */
 async function startHttpServer() {
-  const app = createMcpExpressApp({ host: "0.0.0.0" });
+  const app = express();
+  app.use(express.json());
 
-  // Store transports by session ID for cleanup
-  const transports = new Map<string, StreamableHTTPServerTransport>();
+  // Store transports and servers by session ID
+  const sessions = new Map<string, {
+    transport: StreamableHTTPServerTransport;
+    server: McpServer;
+    apiKey: string;
+  }>();
 
   // Handle MCP requests
   app.all("/mcp", async (req, res) => {
+    // Extract API key from Authorization header
+    const authHeader = req.headers.authorization;
+    let apiKey: string | undefined;
+
+    if (authHeader?.startsWith("Bearer ")) {
+      apiKey = authHeader.slice(7);
+    }
+
+    // Fall back to env var if no header (for backwards compatibility)
+    if (!apiKey) {
+      apiKey = process.env.LEADFUZE_API_KEY;
+    }
+
+    if (!apiKey) {
+      res.status(401).json({
+        error: "Authorization required. Pass your LeadFuze API key in the Authorization header: Bearer lfz_xxx"
+      });
+      return;
+    }
+
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
-    // For new sessions or requests without session ID
-    let transport: StreamableHTTPServerTransport;
-
-    if (sessionId && transports.has(sessionId)) {
-      transport = transports.get(sessionId)!;
-    } else {
-      // Create new transport for new session
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (newSessionId) => {
-          transports.set(newSessionId, transport);
-          console.log(`Session initialized: ${newSessionId}`);
-        },
-        onsessionclosed: (closedSessionId) => {
-          transports.delete(closedSessionId);
-          console.log(`Session closed: ${closedSessionId}`);
-        },
-      });
-
-      // Connect the server to the transport
-      await server.connect(transport);
+    // Check for existing session
+    if (sessionId && sessions.has(sessionId)) {
+      const session = sessions.get(sessionId)!;
+      await session.transport.handleRequest(req, res);
+      return;
     }
+
+    // Create new session with user's API key
+    const client = new LeadFuzeClient(apiKey);
+    const server = createMcpServer(() => client);
+
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (newSessionId) => {
+        sessions.set(newSessionId, { transport, server, apiKey: apiKey! });
+        console.log(`Session initialized: ${newSessionId}`);
+      },
+      onsessionclosed: (closedSessionId) => {
+        sessions.delete(closedSessionId);
+        console.log(`Session closed: ${closedSessionId}`);
+      },
+    });
+
+    // Connect the server to the transport
+    await server.connect(transport);
 
     // Handle the request
     await transport.handleRequest(req, res);
@@ -232,6 +323,8 @@ async function startHttpServer() {
     console.log(`LeadFuze MCP Server running on http://0.0.0.0:${port}`);
     console.log(`MCP endpoint: http://0.0.0.0:${port}/mcp`);
     console.log(`Health check: http://0.0.0.0:${port}/health`);
+    console.log(`\nUsers should pass their API key via Authorization header:`);
+    console.log(`  Authorization: Bearer lfz_your_api_key`);
   });
 }
 

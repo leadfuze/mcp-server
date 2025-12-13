@@ -2,27 +2,73 @@
 
 ## Description
 
-Enable Claude to be your everyday sales prospector. Enrich contacts and companies with verified business data directly from Claude and other MCP-compatible AI agents. Get detailed person and company information including emails, phone numbers, job titles, company details, and social profiles. 
+Enable Claude to be your everyday sales prospector. Enrich contacts and companies with verified business data directly from Claude and other MCP-compatible AI agents. Get detailed person and company information including emails, phone numbers, job titles, company details, and social profiles.
 
 ## Features
 
 - **Email Enrichment**: Look up detailed person and company data using an email address
 - **LinkedIn Enrichment**: Look up detailed person and company data using a LinkedIn profile URL
+- **Email Validation**: Verify if an email address is deliverable, check format validity, and assess risk level
 - **Rich Data**: Returns verified business emails, phone numbers, job titles, company info, and social profiles
-- **No Match = No Charge**: Credits are only consumed when a profile match is found
+- **No Match = No Charge**: Enrichment credits are only consumed when a profile match is found
 
 ## Getting Started
 
 1. Visit [LeadFuze Console](https://console.leadfuze.com/register) to create an account
 2. Your API key is automatically created on account setup
 3. Find your API key on the API Keys page (starts with `lfz_`)
+4. Configure the MCP server with your API key (see Configuration below)
+
+## Configuration
+
+**Just copy/paste the config below with your API key. No installation required.**
+
+### Claude.ai
+
+Connect to the hosted MCP server at `https://mcp.leadfuze.com/mcp` and enter your API key when prompted.
+
+### VS Code / Cursor
+
+Add the following to your `mcp.json` file (usually at `~/.cursor/mcp.json` or `~/.vscode/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "leadfuze": {
+      "url": "https://mcp.leadfuze.com/mcp",
+      "headers": {
+        "Authorization": "Bearer lfz_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+Add to your Claude Desktop config file (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "leadfuze": {
+      "url": "https://mcp.leadfuze.com/mcp",
+      "headers": {
+        "Authorization": "Bearer lfz_your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+Replace `lfz_your_api_key_here` with your actual API key from the LeadFuze console.
 
 ## Rate Limits
 
 | Endpoint | Rate Limit |
 |----------|------------|
 | Enrichment (Email/LinkedIn) | 10,000 requests/minute |
-| Email Validation (future) | 20,000 requests/minute |
+| Email Validation | 20,000 requests/minute |
 
 Need higher limits? Contact us at help@leadfuze.co
 
@@ -96,6 +142,37 @@ No credits were consumed for this lookup.
 Try searching with a different email or LinkedIn URL.
 ```
 
+### Example 4: Email Validation
+
+**User prompt:** "Validate the email john@stripe.com"
+
+**What happens:**
+- Server checks if the email format is valid
+- Verifies the domain exists and has mail servers
+- Tests deliverability via SMTP
+- Assesses risk level (low, medium, high)
+- One credit consumed for validation
+
+**Example response:**
+```
+Email: john@stripe.com
+Status: RISKY
+Risk Level: medium
+
+Validation Details:
+- Valid Format: Yes
+- Deliverable: Yes
+- Host Exists: Yes
+- Catch-All: Yes
+- Full Inbox: No
+
+Email Info:
+- Username: john
+- Domain: stripe.com
+
+Credits Used: 1 | Remaining: 99
+```
+
 ## Privacy Policy
 
 See our privacy policy: https://www.leadfuze.com/privacy
@@ -107,9 +184,14 @@ See our privacy policy: https://www.leadfuze.com/privacy
 
 ---
 
-## Development
+## Self-Hosting & Development
 
-This section is for contributors and self-hosting.
+**Most users don't need this section** - the Configuration section above connects you to LeadFuze's hosted server.
+
+This section is for:
+- **Enterprise users** who need to run the server on their own infrastructure (security/compliance requirements)
+- **Developers** contributing to this open-source project
+- **Offline usage** where you can't connect to mcp.leadfuze.com
 
 ### Installation
 
