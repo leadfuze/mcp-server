@@ -250,7 +250,7 @@ async function startStdioServer() {
  */
 async function startHttpServer() {
   const app = express();
-  app.use(express.json());
+  // Note: Don't use express.json() globally - MCP transport needs raw body access
 
   // Store transports and servers by session ID
   const sessions = new Map<string, {
