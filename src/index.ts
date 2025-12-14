@@ -252,6 +252,40 @@ async function startHttpServer() {
   const app = express();
   // Note: Don't use express.json() globally - MCP transport needs raw body access
 
+  // CORS middleware for Claude.ai and other MCP clients
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    // Allow Claude.ai, Claude.com, and localhost for testing
+    const allowedOrigins = [
+      'https://claude.ai',
+      'https://www.claude.ai',
+      'https://claude.com',
+      'https://www.claude.com',
+      'http://localhost:6274', // MCP Inspector
+      'http://127.0.0.1:6274',
+    ];
+    
+    if (origin && allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    } else if (!origin) {
+      // Allow requests without origin (server-to-server)
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, mcp-session-id, Accept');
+    res.setHeader('Access-Control-Expose-Headers', 'mcp-session-id');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    
+    // Handle preflight
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    
+    next();
+  });
+
   // Store transports and servers by session ID
   const sessions = new Map<string, {
     transport: StreamableHTTPServerTransport;
